@@ -54,3 +54,35 @@ user_fridge = []
 @app.get("/")
 def read_root():
     return {"message": "Food Planner API"}
+# ЭТО ЭНДПОИНТЫ - реальный код:
+
+# GET эндпоинт - получить рецепты по ингредиентам
+@app.get("/recipes")
+async def get_recipes_by_ingredients(ingredients: str):
+    ingredients_list = [ing.strip().lower() for ing in ingredients.split(",")]
+    # ... логика поиска ...
+    return {"available_recipes": matching_recipes}
+
+# GET эндпоинт - получить все рецепты  
+@app.get("/all-recipes")
+async def get_all_recipes():
+    return {"recipes": recipes_db}
+
+# GET эндпоинт - получить конкретный рецепт
+@app.get("/recipes/{recipe_id}")
+async def get_recipe(recipe_id: int):
+    for recipe in recipes_db:
+        if recipe["id"] == recipe_id:
+            return recipe
+    return {"error": "Рецепт не найден"}
+
+# POST эндпоинт - добавить продукты в холодильник
+@app.post("/fridge")
+async def add_to_fridge(products: List[str]):
+    user_fridge.extend([product.lower() for product in products])
+    return {"message": "Продукты добавлены", "current_fridge": user_fridge}
+
+# GET эндпоинт - посмотреть холодильник
+@app.get("/fridge")
+async def get_fridge():
+    return {"fridge": user_fridge}
