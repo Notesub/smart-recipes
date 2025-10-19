@@ -1,88 +1,177 @@
-from fastapi import FastAPI
-from typing import List, Optional
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
+
+# Создаем веб-приложение
 app = FastAPI()
 
-# === ОПИСАНИЕ API ЭНДПОИНТОВ ===
+# Это наши "базы данных" - просто списки в памяти
+recipes_db = []    # Здесь будут храниться все рецепты
+user_fridge = []   # Здесь будут храниться продукты пользователя
 
-# Получить рецепты по указанным ингредиентам
-# Вход: ingredients - строка с продуктами через запятую
-# Выход: {"recipes": [{"id": int, "name": str, "ingredients": List[str], "cooking_time": int}]}
-# GET /recipes?ingredients=курица,рис,лук
+# Описываем как выглядит рецепт
+class Recipe(BaseModel):
+    name: str
+    ingredients: List[str]
+    instructions: str
+    cooking_time: int
+    calories: int
 
-# Получить детальную информацию о конкретном рецепте
-# Вход: recipe_id - идентификатор рецепта (число)
-# Выход: {"id": int, "name": str, "ingredients": List[str], "instructions": str, "cooking_time": int, "calories": int}
-# GET /recipes/{recipe_id}
+# Описываем как выглядит продукт
+class FridgeItem(BaseModel):
+    product: str
 
-# Добавить продукты в виртуальный холодильник
-# Вход: {"products": List[str]} - JSON с массивом продуктов
-# Выход: {"message": str, "fridge": List[str]}
-# POST /fridge
+# ============ ЭНДПОИНТЫ ============
 
-# Посмотреть текущие продукты в холодильнике
-# Вход: нет
-# Выход: {"fridge": List[str]}
-# GET /fridge
-
-# Получить рецепты из текущих продуктов в холодильнике
-# Вход: нет
-# Выход: {"recipes": [{"id": int, "name": str, "ingredients": List[str], "cooking_time": int}]}
-# GET /fridge/recipes
-
-# === РЕАЛЬНАЯ РЕАЛИЗАЦИЯ ===
-
-# Временная база данных (потом заменим на настоящую БД)
-
-recipes_db = [
-    {
-        "id": 1,
-        "name": "Курица с рисом",
-        "ingredients": ["курица", "рис", "лук", "морковь"],
-        "instructions": "Обжарить курицу, добавить овощи, тушить с рисом",
-        "cooking_time": 30,
-        "calories": 450
+# Эндпоинт 1: Получить все рецепты
+@app.get('/recipes')
+def get_all_recipes():
+    # Функция GET - только получает данные, ничего не изменяет
+    
+    # Считаем сколько всего рецептов
+    total_recipes = len(recipes_db)
+    
+    # Проверяем пустая ли база рецептов
+    is_empty = total_recipes == 0
+    
+    return {
+        "total_recipes": total_recipes,  # Показываем количество
+        "is_empty": is_empty,            # Показываем пусто или нет
+        "recipes": recipes_db            # Отдаем все рецепты
     }
-]
 
-user_fridge = []
-
-# Продукты пользователя
-
-# Здесь будет твой реальный код эндпоинтов...
-# (который мы писали ранее)
-
-@app.get("/")
-def read_root():
-    return {"message": "Food Planner API"}
-# ЭТО ЭНДПОИНТЫ - реальный код:
-
-# GET эндпоинт - получить рецепты по ингредиентам
-@app.get("/recipes")
-async def get_recipes_by_ingredients(ingredients: str):
-    ingredients_list = [ing.strip().lower() for ing in ingredients.split(",")]
-    # ... логика поиска ...
-    return {"available_recipes": matching_recipes}
-
-# GET эндпоинт - получить все рецепты  
-@app.get("/all-recipes")
-async def get_all_recipes():
-    return {"recipes": recipes_db}
-
-# GET эндпоинт - получить конкретный рецепт
-@app.get("/recipes/{recipe_id}")
-async def get_recipe(recipe_id: int):
+# Эндпоинт 2: Найти рецепты по ингредиентам
+@app.get('/recipes/search')
+def search_recipes_by_ingredients(ingredients: str):
+    # ingredients - это строка типа "курица,рис,лук" из URL
+    
+    # Проверяем что пользователь указал ингредиенты
+    if ingredients == "" or ingredients is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="Укажите ингредиенты через запятую"
+        )
+    
+    # Разделяем строку на отдельные ингредиенты
+    ingredients_parts = ingredients.split(",")
+    
+    # Очищаем каждый ингредиент (убираем пробелы, делаем маленькими буквами)
+    clean_ingredients = []
+    for ingredient in ingredients_parts:
+        clean_ingredient = ingredient.strip().lower()
+        clean_ingredients.append(clean_ingredient)
+    
+    # Ищем подходящие рецепты
+    found_recipes = []
+    
+    # Перебираем ВСЕ рецепты в базе
     for recipe in recipes_db:
-        if recipe["id"] == recipe_id:
-            return recipe
-    return {"error": "Рецепт не найден"}
+        # Для каждого рецепта проверяем есть ли в нем нужные ингредиенты
+        has_all_ingredients = True
+        
+        # Проверяем каждый искомый ингредиент
+        for search_ingredient in clean_ingredients:
+            if search_ingredient not in recipe["ingredients"]:
+                has_all_ingredients = False
+                break  # Прерываем проверку если не нашли ингредиент
+        
+        # Если рецепт подходит - добавляем в результат
+        if has_all_ingredients:
+            found_recipes.append(recipe)
+    
+    # Проверяем нашли ли хоть один рецепт
+    if len(found_recipes) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Не найдено рецептов с указанными ингредиентами"
+        )
+    
+    return {"found_recipes": found_recipes}
 
-# POST эндпоинт - добавить продукты в холодильник
-@app.post("/fridge")
-async def add_to_fridge(products: List[str]):
-    user_fridge.extend([product.lower() for product in products])
-    return {"message": "Продукты добавлены", "current_fridge": user_fridge}
+# Эндпоинт 3: Добавить новый рецепт
+@app.post('/recipes')
+def add_recipe(recipe: Recipe):
+    # POST - создает новые данные
+    
+    # Преобразуем рецепт в обычный словарь Python
+    new_recipe = recipe.dict()
+    
+    # Добавляем ID рецепту (просто номер по порядку)
+    new_recipe_id = len(recipes_db) + 1
+    new_recipe["id"] = new_recipe_id
+    
+    # Добавляем рецепт в нашу базу
+    recipes_db.append(new_recipe)
+    
+    return {"message": f"Рецепт '{recipe.name}' успешно добавлен"}
 
-# GET эндпоинт - посмотреть холодильник
-@app.get("/fridge")
-async def get_fridge():
-    return {"fridge": user_fridge}
+# Эндпоинт 4: Посмотреть что в холодильнике
+@app.get('/fridge')
+def get_fridge_contents():
+    total_products = len(user_fridge)
+    is_empty = total_products == 0
+    
+    return {
+        "total_products": total_products,
+        "is_empty": is_empty,
+        "products": user_fridge
+    }
+
+# Эндпоинт 5: Добавить продукт в холодильник
+@app.post('/fridge')
+def add_to_fridge(item: FridgeItem):
+    # Добавляем продукт в список (в нижнем регистре)
+    product_name = item.product.lower()
+    user_fridge.append(product_name)
+    
+    return {"message": f"Продукт '{item.product}' добавлен в холодильник"}
+
+# Эндпоинт 6: Очистить холодильник
+@app.delete('/fridge/clear')
+def clear_fridge():
+    # Очищаем список продуктов
+    user_fridge.clear()
+    
+    return {"message": "Холодильник очищен"}
+
+# Эндпоинт 7: Получить рецепты из продуктов в холодильнике
+@app.get('/fridge/recipes')
+def get_recipes_from_fridge():
+    # Проверяем есть ли продукты в холодильнике
+    if len(user_fridge) == 0:
+        raise HTTPException(
+            status_code=404, 
+            detail="В холодильнике нет продуктов"
+        )
+    
+    # Ищем рецепты которые можно приготовить
+    available_recipes = []
+    
+    # Перебираем все рецепты
+    for recipe in recipes_db:
+        # Проверяем можно ли приготовить этот рецепт
+        can_cook = True
+        
+        # Проверяем каждый ингредиент рецепта
+        for ingredient in recipe["ingredients"]:
+            if ingredient not in user_fridge:
+                can_cook = False
+                break  # Если нет какого-то ингредиента - рецепт не готовим
+        
+        # Если все ингредиенты есть - добавляем рецепт
+        if can_cook:
+            available_recipes.append(recipe)
+    
+    # Проверяем нашли ли рецепты
+    if len(available_recipes) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Нет рецептов для продуктов в холодильнике"
+        )
+    
+    return {"available_recipes": available_recipes}
+
+# Запускаем сервер когда файл запускают напрямую
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
